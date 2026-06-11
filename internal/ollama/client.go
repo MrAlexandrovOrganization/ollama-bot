@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -107,14 +108,14 @@ func (c *Client) ChatStream(ctx context.Context, model string, messages []Messag
 		return "", fmt.Errorf("ollama /api/chat: status %d", resp.StatusCode)
 	}
 
-	var full string
+	var full strings.Builder
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return full, ctx.Err()
+			return full.String(), ctx.Err()
 		default:
 		}
 
@@ -128,10 +129,10 @@ func (c *Client) ChatStream(ctx context.Context, model string, messages []Messag
 			continue
 		}
 		if chunk.Error != "" {
-			return full, fmt.Errorf("ollama: %s", chunk.Error)
+			return full.String(), fmt.Errorf("ollama: %s", chunk.Error)
 		}
 		if chunk.Message.Content != "" {
-			full += chunk.Message.Content
+			full.WriteString(chunk.Message.Content)
 			if onChunk != nil {
 				onChunk(chunk.Message.Content)
 			}
@@ -141,5 +142,5 @@ func (c *Client) ChatStream(ctx context.Context, model string, messages []Messag
 		}
 	}
 
-	return full, scanner.Err()
+	return full.String(), scanner.Err()
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"ollama-bot/internal/ollama"
 	"strings"
 	"time"
 
@@ -15,47 +14,21 @@ import (
 
 // handleText processes a plain text message: appends it to history and streams an LLM response.
 func (b *Bot) handleText(msg *telego.Message) {
-	messages := make([]ollama.Message, 0)
-
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if b.busy {
-			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-			return
-		}
-		b.busy = true
-		b.session.addUser(msg.Text)
-		messages = b.session.buildMessages()
+	if !b.tryAcquire() {
+		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+		return
 	}
-
-	ctx := context.Background()
-	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
-
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.busy = false
-		if err == nil && response != "" {
-			b.session.addAssistant(response)
-		} else if err != nil {
-			b.session.popLastUser()
-		}
-	}
+	messages, model := b.startMessage(msg.Text)
+	response, err := b.streamResponse(context.Background(), msg.Chat.ID, model, messages)
+	b.finish(response, err)
 }
 
 // handlePhoto downloads a photo, base64-encodes it, and sends it to the current model.
 // The message caption (if any) is used as the user's question; defaults to "Что на этом изображении?".
 func (b *Bot) handlePhoto(msg *telego.Message) {
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if b.busy {
-			b.mu.Unlock()
-			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-			return
-		}
-		b.busy = true
+	if !b.tryAcquire() {
+		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+		return
 	}
 
 	ctx := context.Background()
@@ -67,9 +40,8 @@ func (b *Bot) handlePhoto(msg *telego.Message) {
 	data, err := b.downloadFile(ctx, photo.FileID)
 	if err != nil {
 		slog.Error("download photo", "error", err)
+		b.release()
 		b.send(msg.Chat.ID, "Не удалось скачать фото: "+err.Error())
-		b.mu.Lock()
-		b.busy = false
 		return
 	}
 
@@ -79,26 +51,9 @@ func (b *Bot) handlePhoto(msg *telego.Message) {
 		caption = "Что на этом изображении?"
 	}
 
-	messages := make([]ollama.Message, 0)
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.session.addUser(caption, imageB64)
-		messages = b.session.buildMessages()
-	}
-
-	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
-
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.busy = false
-		if err == nil && response != "" {
-			b.session.addAssistant(response)
-		} else if err != nil {
-			b.session.popLastUser()
-		}
-	}
+	messages, model := b.startMessage(caption, imageB64)
+	response, err := b.streamResponse(ctx, msg.Chat.ID, model, messages)
+	b.finish(response, err)
 }
 
 // handleVoice processes a voice message or video note.
@@ -115,15 +70,9 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 		return
 	}
 
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if b.busy {
-			b.mu.Unlock()
-			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-			return
-		}
-		b.busy = true
+	if !b.tryAcquire() {
+		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+		return
 	}
 
 	ctx := context.Background()
@@ -141,10 +90,8 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 	data, err := b.downloadFile(ctx, fileID)
 	if err != nil {
 		slog.Error("download voice", "error", err)
+		b.release()
 		b.send(msg.Chat.ID, "Не удалось скачать аудио: "+err.Error())
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.busy = false
 		return
 	}
 
@@ -153,36 +100,17 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 	text, err := b.transcribeVoice(ctx, data)
 	if err != nil {
 		slog.Error("transcribe", "error", err)
+		b.release()
 		b.send(msg.Chat.ID, "Ошибка транскрибации: "+err.Error())
-		b.mu.Lock()
-		b.busy = false
-		b.mu.Unlock()
 		return
 	}
 
 	slog.Info("transcribed", "chars", len(text))
 	b.send(msg.Chat.ID, "📝 "+text)
 
-	messages := make([]ollama.Message, 0)
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.session.addUser(text)
-		messages = b.session.buildMessages()
-	}
-
-	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
-
-	{
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.busy = false
-		if err == nil && response != "" {
-			b.session.addAssistant(response)
-		} else if err != nil {
-			b.session.popLastUser()
-		}
-	}
+	messages, model := b.startMessage(text)
+	response, err := b.streamResponse(ctx, msg.Chat.ID, model, messages)
+	b.finish(response, err)
 }
 
 // transcribeVoice submits audio to the Whisper gRPC service and polls for the result.
@@ -193,14 +121,15 @@ func (b *Bot) transcribeVoice(ctx context.Context, data []byte) (string, error) 
 	}
 	slog.Info("whisper job submitted", "job_id", jobID, "queue_position", pos)
 
-	const pollInterval = 5 * time.Second
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			_, _ = b.whisper.Cancel(jobID)
 			return "", ctx.Err()
-		case <-time.After(pollInterval):
+		case <-ticker.C:
 		}
 
 		result, err := b.whisper.GetStatus(jobID)

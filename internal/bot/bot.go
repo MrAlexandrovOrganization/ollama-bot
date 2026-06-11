@@ -26,6 +26,7 @@ type Bot struct {
 	ollama  *ollama.Client
 	whisper *whisper.Client // nil if Whisper is not configured
 	cfg     *config.Config
+	http    *http.Client
 	mu      sync.Mutex
 	session *Session
 	busy    bool // true while an LLM request is in flight
@@ -38,7 +39,48 @@ func New(api *telego.Bot, ollamaClient *ollama.Client, whisperClient *whisper.Cl
 		ollama:  ollamaClient,
 		whisper: whisperClient,
 		cfg:     cfg,
+		http:    &http.Client{Timeout: 5 * time.Minute},
 		session: newSession(cfg.DefaultModel),
+	}
+}
+
+// tryAcquire attempts to set the busy flag. Returns false if already busy.
+func (b *Bot) tryAcquire() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.busy {
+		return false
+	}
+	b.busy = true
+	return true
+}
+
+// release clears the busy flag without modifying session history.
+// Use this when a handler fails before adding anything to the session.
+func (b *Bot) release() {
+	b.mu.Lock()
+	b.busy = false
+	b.mu.Unlock()
+}
+
+// startMessage adds a user message to the session under the lock
+// and returns the full message list and the current model name.
+func (b *Bot) startMessage(content string, images ...string) ([]ollama.Message, string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.session.addUser(content, images...)
+	return b.session.buildMessages(), b.session.Model
+}
+
+// finish clears the busy flag and updates session history.
+func (b *Bot) finish(response string, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.busy = false
+	if err == nil && response != "" {
+		b.session.addAssistant(response)
+	} else if err != nil {
+		b.session.popLastUser()
 	}
 }
 
@@ -59,7 +101,7 @@ func (b *Bot) Run(ctx context.Context) {
 
 // streamResponse sends a "thinking" placeholder and streams the LLM response into it.
 // Returns the full response text.
-func (b *Bot) streamResponse(ctx context.Context, chatID int64, messages []ollama.Message) (string, error) {
+func (b *Bot) streamResponse(ctx context.Context, chatID int64, model string, messages []ollama.Message) (string, error) {
 	_ = b.api.SendChatAction(ctx, &telego.SendChatActionParams{
 		ChatID: telego.ChatID{ID: chatID},
 		Action: "typing",
@@ -79,7 +121,6 @@ func (b *Bot) streamResponse(ctx context.Context, chatID int64, messages []ollam
 	var mu sync.Mutex
 	var partial string
 
-	model := b.session.Model
 	go func() {
 		full, err := b.ollama.ChatStream(ctx, model, messages, func(chunk string) {
 			mu.Lock()
@@ -170,7 +211,11 @@ func (b *Bot) downloadFile(ctx context.Context, fileID string) ([]byte, error) {
 		return nil, fmt.Errorf("get file info: %w", err)
 	}
 	url := b.api.FileDownloadURL(file.FilePath)
-	resp, err := http.Get(url) //nolint:noctx
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build download request: %w", err)
+	}
+	resp, err := b.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download: %w", err)
 	}
