@@ -1,5 +1,13 @@
 DOCKER_COMPOSE = docker compose
 
+GO_UNIT_PKGS = \
+	./cmd/... \
+	./internal/... \
+	./internal/bot/... \
+	./internal/config/... \
+	./internal/ollama/... \
+	./internal/whisper/...
+
 # Canonical source of whisper.proto.
 # For remote fetch (e.g. in CI without access to the backend repo):
 #   make proto WHISPER_PROTO_SRC=https://raw.githubusercontent.com/org/transcriber/main/proto/whisper.proto
@@ -36,11 +44,11 @@ deploy:
 
 .PHONY: format
 format:
-	gofmt -w ./bot
+	gofmt -w ./cmd ./internal
 
 .PHONY: test
 test:
-	cd bot && go test ./...
+	go test $(GO_UNIT_PKGS)
 
 .PHONY: cover
 cover:
