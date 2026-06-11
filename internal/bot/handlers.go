@@ -199,4 +199,3 @@ func (b *Bot) transcribeVoice(ctx context.Context, data []byte) (string, error) 
 		}
 	}
 }
-
