@@ -12,6 +12,9 @@ services:
     networks:
       - ollama-net
       - whisper-net
+    extends:
+      file: docker-compose.base.yml
+      service: base
 
 networks:
   ollama-net:
