@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"ollama-bot/internal/ollama"
 	"strings"
 	"time"
 
@@ -14,41 +15,48 @@ import (
 
 // handleText processes a plain text message: appends it to history and streams an LLM response.
 func (b *Bot) handleText(msg *telego.Message) {
-	b.mu.Lock()
-	if b.busy {
-		b.mu.Unlock()
-		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-		return
+	messages := make([]ollama.Message, 0)
+
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.busy {
+			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+			return
+		}
+		b.busy = true
+		b.session.addUser(msg.Text)
+		messages = b.session.buildMessages()
 	}
-	b.busy = true
-	b.session.addUser(msg.Text)
-	messages := b.session.buildMessages()
-	b.mu.Unlock()
 
 	ctx := context.Background()
 	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
 
-	b.mu.Lock()
-	b.busy = false
-	if err == nil && response != "" {
-		b.session.addAssistant(response)
-	} else if err != nil {
-		b.session.popLastUser()
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.busy = false
+		if err == nil && response != "" {
+			b.session.addAssistant(response)
+		} else if err != nil {
+			b.session.popLastUser()
+		}
 	}
-	b.mu.Unlock()
 }
 
 // handlePhoto downloads a photo, base64-encodes it, and sends it to the current model.
 // The message caption (if any) is used as the user's question; defaults to "Что на этом изображении?".
 func (b *Bot) handlePhoto(msg *telego.Message) {
-	b.mu.Lock()
-	if b.busy {
-		b.mu.Unlock()
-		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-		return
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.busy {
+			b.mu.Unlock()
+			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+			return
+		}
+		b.busy = true
 	}
-	b.busy = true
-	b.mu.Unlock()
 
 	ctx := context.Background()
 
@@ -62,7 +70,6 @@ func (b *Bot) handlePhoto(msg *telego.Message) {
 		b.send(msg.Chat.ID, "Не удалось скачать фото: "+err.Error())
 		b.mu.Lock()
 		b.busy = false
-		b.mu.Unlock()
 		return
 	}
 
@@ -72,21 +79,26 @@ func (b *Bot) handlePhoto(msg *telego.Message) {
 		caption = "Что на этом изображении?"
 	}
 
-	b.mu.Lock()
-	b.session.addUser(caption, imageB64)
-	messages := b.session.buildMessages()
-	b.mu.Unlock()
+	messages := make([]ollama.Message, 0)
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.session.addUser(caption, imageB64)
+		messages = b.session.buildMessages()
+	}
 
 	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
 
-	b.mu.Lock()
-	b.busy = false
-	if err == nil && response != "" {
-		b.session.addAssistant(response)
-	} else if err != nil {
-		b.session.popLastUser()
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.busy = false
+		if err == nil && response != "" {
+			b.session.addAssistant(response)
+		} else if err != nil {
+			b.session.popLastUser()
+		}
 	}
-	b.mu.Unlock()
 }
 
 // handleVoice processes a voice message or video note.
@@ -103,14 +115,16 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 		return
 	}
 
-	b.mu.Lock()
-	if b.busy {
-		b.mu.Unlock()
-		b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
-		return
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.busy {
+			b.mu.Unlock()
+			b.send(msg.Chat.ID, "⏳ Подожди, я ещё думаю...")
+			return
+		}
+		b.busy = true
 	}
-	b.busy = true
-	b.mu.Unlock()
 
 	ctx := context.Background()
 
@@ -129,8 +143,8 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 		slog.Error("download voice", "error", err)
 		b.send(msg.Chat.ID, "Не удалось скачать аудио: "+err.Error())
 		b.mu.Lock()
+		defer b.mu.Unlock()
 		b.busy = false
-		b.mu.Unlock()
 		return
 	}
 
@@ -149,21 +163,26 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 	slog.Info("transcribed", "chars", len(text))
 	b.send(msg.Chat.ID, "📝 "+text)
 
-	b.mu.Lock()
-	b.session.addUser(text)
-	messages := b.session.buildMessages()
-	b.mu.Unlock()
+	messages := make([]ollama.Message, 0)
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.session.addUser(text)
+		messages = b.session.buildMessages()
+	}
 
 	response, err := b.streamResponse(ctx, msg.Chat.ID, messages)
 
-	b.mu.Lock()
-	b.busy = false
-	if err == nil && response != "" {
-		b.session.addAssistant(response)
-	} else if err != nil {
-		b.session.popLastUser()
+	{
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.busy = false
+		if err == nil && response != "" {
+			b.session.addAssistant(response)
+		} else if err != nil {
+			b.session.popLastUser()
+		}
 	}
-	b.mu.Unlock()
 }
 
 // transcribeVoice submits audio to the Whisper gRPC service and polls for the result.
