@@ -6,7 +6,7 @@ services:
     environment:
       OLLAMA_HOST: ollama
       OLLAMA_PORT: "11434"
-      DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3:2b}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen3.5:2b}
       WHISPER_GRPC_HOST: whisper-ingress
       WHISPER_GRPC_PORT: "50053"
     networks:
