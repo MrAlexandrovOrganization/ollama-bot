@@ -37,7 +37,7 @@ func Load() (*Config, error) {
 		RootID:          rootID,
 		OllamaHost:      getEnv("OLLAMA_HOST", "localhost"),
 		OllamaPort:      getEnv("OLLAMA_PORT", "11434"),
-		DefaultModel:    getEnv("DEFAULT_MODEL", "qwen3.5:2b"),
+		DefaultModel:    getEnv("DEFAULT_MODEL", "qwen2.5:7b"),
 		WhisperGRPCHost: getEnv("WHISPER_GRPC_HOST", ""),
 		WhisperGRPCPort: getEnv("WHISPER_GRPC_PORT", "50053"),
 	}, nil
