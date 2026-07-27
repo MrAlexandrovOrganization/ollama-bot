@@ -9,6 +9,14 @@ services:
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen2.5:7b}
       WHISPER_GRPC_HOST: whisper-ingress
       WHISPER_GRPC_PORT: "50053"
+      # Route Telegram API traffic through Xray SOCKS5 proxy on host
+      HTTPS_PROXY: socks5://host.docker.internal:10808
+      NO_PROXY: ollama,whisper-ingress,localhost,127.0.0.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     networks:
       - ollama-net
       - whisper-net
