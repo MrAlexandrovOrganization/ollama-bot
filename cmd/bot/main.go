@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"ollama-bot/internal/bot"
 	"ollama-bot/internal/config"
@@ -22,7 +25,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	api, err := telego.NewBot(cfg.BotToken)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         (&net.Dialer{Timeout: 60 * time.Second}).DialContext,
+			TLSHandshakeTimeout: 60 * time.Second,
+		},
+		Timeout: 120 * time.Second,
+	}
+
+	api, err := telego.NewBot(cfg.BotToken, telego.WithHTTPClient(httpClient))
 	if err != nil {
 		slog.Error("bot init", "error", err)
 		os.Exit(1)
