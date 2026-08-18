@@ -34,7 +34,11 @@ func main() {
 		Timeout: 120 * time.Second,
 	}
 
-	api, err := telego.NewBot(cfg.BotToken, telego.WithHTTPClient(httpClient))
+	var options []telego.BotOption
+	if cfg.TelegramLocalAPI != "" {
+		options = append(options, telego.WithAPIServer(cfg.TelegramLocalAPI))
+	}
+	api, err := telego.NewBot(cfg.BotToken, append([]telego.BotOption{telego.WithHTTPClient(httpClient)}, options...)...)
 	if err != nil {
 		slog.Error("bot init", "error", err)
 		os.Exit(1)

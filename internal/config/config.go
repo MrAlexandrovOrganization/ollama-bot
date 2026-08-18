@@ -8,13 +8,14 @@ import (
 
 // Config holds all bot configuration loaded from environment variables.
 type Config struct {
-	BotToken        string
-	RootID          int64
-	OllamaHost      string
-	OllamaPort      string
-	DefaultModel    string
-	WhisperGRPCHost string
-	WhisperGRPCPort string
+	BotToken           string
+	RootID             int64
+	OllamaHost         string
+	OllamaPort         string
+	DefaultModel       string
+	WhisperGRPCHost    string
+	WhisperGRPCPort    string
+	TelegramLocalAPI   string
 }
 
 func Load() (*Config, error) {
@@ -40,6 +41,7 @@ func Load() (*Config, error) {
 		DefaultModel:    getEnv("DEFAULT_MODEL", "qwen2.5:7b"),
 		WhisperGRPCHost: getEnv("WHISPER_GRPC_HOST", ""),
 		WhisperGRPCPort: getEnv("WHISPER_GRPC_PORT", "50053"),
+		TelegramLocalAPI: getEnv("TELEGRAM_LOCAL_API_URL", ""),
 	}, nil
 }
 
