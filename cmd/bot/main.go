@@ -12,6 +12,7 @@ import (
 
 	"ollama-bot/internal/bot"
 	"ollama-bot/internal/config"
+	"ollama-bot/internal/logx"
 	"ollama-bot/internal/ollama"
 	"ollama-bot/internal/whisper"
 
@@ -24,6 +25,8 @@ func main() {
 		slog.Error("config", "error", err)
 		os.Exit(1)
 	}
+
+	logx.Setup("ollama-bot", cfg.BotToken)
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
