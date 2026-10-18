@@ -1,4 +1,4 @@
-# telegram-bots__ollama-bot
+# ollama-bot
 
 ## Структура Compose
 
