@@ -62,7 +62,7 @@ func (b *Bot) handleVoice(msg *telego.Message) {
 	if b.whisper == nil {
 		b.sendHTML(msg.Chat.ID,
 			"🎙 Голосовые сообщения требуют настройки сервиса транскрибации.\n\n"+
-				"Убедитесь, что в <code>docker-compose.yml</code> указаны:\n"+
+				"Убедитесь, что в <code>compose/docker-compose.yml</code> указаны:\n"+
 				"<code>WHISPER_GRPC_HOST</code> и <code>WHISPER_GRPC_PORT</code>, "+
 				"а контейнер подключён к сети <code>whisper-net</code>.",
 			nil,

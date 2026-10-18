@@ -25,7 +25,7 @@ services:
       - whisper-net
       - telegram-net
     extends:
-      file: docker-compose.base.yml
+      file: compose/docker-compose.base.yml
       service: base
 
 networks:
